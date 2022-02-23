@@ -80,7 +80,7 @@ def sampling(text_encoder, netG, dataloader,device):
             with torch.no_grad():
                 noise = torch.randn(batch_size, 100)
                 noise=noise.to(device)
-                fake_imgs = netG(noise,sent_emb)
+                fake_imgs = netG(noise,sent_emb) #[2,32,32,32]
             for j in range(batch_size):
                 s_tmp = '%s/single/%s' % (save_dir, keys[j])
                 folder = s_tmp[:s_tmp.rfind('/')]
@@ -91,10 +91,16 @@ def sampling(text_encoder, netG, dataloader,device):
                 # [-1, 1] --> [0, 255]
                 im = (im + 1.0) * 127.5
                 im = im.astype(np.uint8)
-                im = np.transpose(im, (1, 2, 0))
+                im = np.transpose(im, (1, 2, 0)) #[32, 32, 32]
+                '''
                 im = Image.fromarray(im)
                 fullpath = '%s_%3d.png' % (s_tmp,i)
                 im.save(fullpath)
+                '''
+                fullpath = '%s_%03d.voxel' % (s_tmp, i)
+                imdata = np.ascontiguousarray(im)
+                with open(fullpath, 'wb') as f:
+                    f.write(imdata)
 
 
 
@@ -145,7 +151,8 @@ def train(dataloader,netG,netD,text_encoder,optimizerG,optimizerD,state_epoch,ba
                                     grad_outputs=torch.ones(out.size()),
                                     retain_graph=True,
                                     create_graph=True,
-                                    only_inputs=True)
+                                    only_inputs=True,
+                                    allow_unused=True)
             grad0 = grads[0].view(grads[0].size(0), -1)
             grad1 = grads[1].view(grads[1].size(0), -1)
             grad = torch.cat((grad0,grad1),dim=1)                        
@@ -169,9 +176,9 @@ def train(dataloader,netG,netD,text_encoder,optimizerG,optimizerD,state_epoch,ba
             print('[%d/%d][%d/%d] Loss_D: %.3f Loss_G %.3f'
                 % (epoch, cfg.TRAIN.MAX_EPOCH, step, len(dataloader), errD.item(), errG.item()))
 
-        vutils.save_image(fake.data,
-                        '%s/%s/fake_samples_epoch_%03d.png' % (cfg.DATA_DIR, 'imgs', epoch),
-                        normalize=True)
+        #vutils.save_image(fake.data,
+        #                '%s/%s/fake_samples_epoch_%03d.png' % (cfg.DATA_DIR, 'imgs', epoch),
+        #                normalize=True)
 
         if epoch%10==0:
             torch.save(netG.state_dict(), 'models/%s/netG_%03d.pth' % (cfg.CONFIG_NAME, epoch))

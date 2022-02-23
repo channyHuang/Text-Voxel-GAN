@@ -24,6 +24,8 @@ if sys.version_info[0] == 2:
 else:
     import pickle
 
+from glob import glob
+import struct
 
 def prepare_data(data):
     imgs, captions, captions_lens, class_ids, keys = data
@@ -85,15 +87,39 @@ def get_imgs(img_path, imsize, bbox=None,
 
     return ret
 
+def get_voxels(voxel_path, voxelsize, bbox = None, transform = None, normalize = None):
+    totalsize = os.path.getsize(voxel_path)
+    f = open(voxel_path, 'rb')
+    x = f.read(1)
+    y = f.read(1)
+    z = f.read(1)
+    size = [struct.unpack('B', x)[0], struct.unpack('B', y)[0], struct.unpack('B', z)[0]]
+    finalres = []
+    res = []
+    totalsize -= 3
+    for i in range(size[0]):
+        ret = []
+        for j in range(size[1]):
+            sub = []
+            for k in range(size[2]):
+                if totalsize <= 0:
+                    sub.append(0.0)
+                else:
+                    t = f.read(1)
+                    tint = (struct.unpack('B', t))[0]
+                    sub.append(tint * 1.0)
+                    totalsize -= 1
+            ret.append(sub)
+        res.append(ret)
+    finalres.append(normalize(np.array(res)))
+    return finalres
 
 class TextDataset(data.Dataset):
-    def __init__(self, data_dir, split='train',
-                 base_size=64,
-                 transform=None, target_transform=None):
+    def __init__(self, data_dir, split = 'train', base_size = 64, transform = None, target_transform = None):
         self.transform = transform
         self.norm = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+            transforms.Normalize(mean = np.repeat(0.5, 32), std = np.repeat(0.5, 32))])
         self.target_transform = target_transform
         self.embeddings_num = cfg.TEXT.CAPTIONS_PER_IMAGE
 
@@ -115,6 +141,21 @@ class TextDataset(data.Dataset):
 
         self.class_id = self.load_class_id(split_dir, len(self.filenames))
         self.number_example = len(self.filenames)
+
+    def gen_filename_pickle(self, data_dir, suffix = "*.voxel", outputname = "filenames.pickle"):
+        path_list = glob(os.path.join(data_dir, suffix))
+        file_list = list(map(lambda x: os.path.basename(x), path_list))
+        pickle.dump(file_list, open(outputname, 'wb'))
+
+    def gen_caption_pickle(slef, data_dir, suffix = "*.voxel", outputname = "captions.pickle"):
+        path_list = glob(os.path.join(data_dir, suffix))
+        file_list = list(map(lambda x: os.path.basename(x), path_list))
+        caption_list = []
+        for x in file_list:
+            x = os.path.splitext(x)[0]
+            caption_list.append(x)
+        print(caption_list)
+        pickle.dump(caption_list, open(outputname, 'wb'))
 
     def load_bbox(self):
         data_dir = self.data_dir
@@ -142,36 +183,26 @@ class TextDataset(data.Dataset):
 
     def load_captions(self, data_dir, filenames):
         all_captions = []
-        for i in range(len(filenames)):
-            cap_path = '%s/text/%s.txt' % (data_dir, filenames[i])
-            with open(cap_path, "r") as f:
-                captions = f.read().decode('utf8').split('\n')
-                cnt = 0
-                for cap in captions:
-                    if len(cap) == 0:
-                        continue
-                    cap = cap.replace("\ufffd\ufffd", " ")
-                    # picks out sequences of alphanumeric characters as tokens
-                    # and drops everything else
-                    tokenizer = RegexpTokenizer(r'\w+')
-                    tokens = tokenizer.tokenize(cap.lower())
-                    # print('tokens', tokens)
-                    if len(tokens) == 0:
-                        print('cap', cap)
-                        continue
-
-                    tokens_new = []
-                    for t in tokens:
-                        t = t.encode('ascii', 'ignore').decode('ascii')
-                        if len(t) > 0:
-                            tokens_new.append(t)
-                    all_captions.append(tokens_new)
-                    cnt += 1
-                    if cnt == self.embeddings_num:
-                        break
-                if cnt < self.embeddings_num:
-                    print('ERROR: the captions for %s less than %d'
-                          % (filenames[i], cnt))
+        for filename in filenames:
+            x = os.path.splitext(filename)[0]
+            captions = x.split('\n')
+            cnt = 0
+            for cap in captions:
+                if len(cap) == 0:
+                    continue
+                cap = cap.replace("\ufffd\ufffd", " ")
+                tokenizer = RegexpTokenizer(r'\w+')
+                tokens = tokenizer.tokenize(cap.lower())
+                if len(tokens) == 0:
+                    print('cap', cap)
+                    continue
+                tokens_new = []
+                for t in tokens:
+                    t = t.encode('ascii', 'ignore').decode('ascii')
+                    if len(t) > 0:
+                        tokens_new.append(t)
+                all_captions.append(tokens_new)
+                cnt += 1
         return all_captions
 
     def build_dictionary(self, train_captions, test_captions):
@@ -225,17 +256,14 @@ class TextDataset(data.Dataset):
             train_captions, test_captions, ixtoword, wordtoix, n_words = \
                 self.build_dictionary(train_captions, test_captions)
             with open(filepath, 'wb') as f:
-                pickle.dump([train_captions, test_captions,
-                             ixtoword, wordtoix], f, protocol=2)
-                print('Save to: ', filepath)
+                pickle.dump([train_captions, test_captions, ixtoword, wordtoix], f, protocol = 2)
         else:
             with open(filepath, 'rb') as f:
                 x = pickle.load(f)
-                train_captions, test_captions = x[0], x[1]
-                ixtoword, wordtoix = x[2], x[3]
+                train_captions, test_captions, ixtoword, wordtoix = x[0], x[1], x[2], x[3]
                 del x
                 n_words = len(ixtoword)
-                print('Load from: ', filepath)
+                print('Load captions from: %s (%d)' % (filepath, len(filepath)))
         if split == 'train':
             # a list of list: each list contains
             # the indices of words in a sentence
@@ -255,8 +283,8 @@ class TextDataset(data.Dataset):
         return class_id
 
     def load_filenames(self, data_dir, split):
-        filepath = '%s/%s/filenames.pickle' % (data_dir, split)
-        if os.path.isfile(filepath):
+        filepath = '%s\\%s\\filenames.pickle' % (data_dir, split)
+        if os.path.isfile(filepath): 
             with open(filepath, 'rb') as f:
                 filenames = pickle.load(f)
             print('Load filenames from: %s (%d)' % (filepath, len(filenames)))
@@ -296,8 +324,8 @@ class TextDataset(data.Dataset):
             bbox = None
             data_dir = self.data_dir
         #
-        img_name = '%s/images/%s.jpg' % (data_dir, key)
-        imgs = get_imgs(img_name, self.imsize,
+        img_name = '%s/voxelbinary/%s' % (data_dir, key)
+        imgs = get_voxels(img_name, self.imsize,
                         bbox, self.transform, normalize=self.norm)
         # random select a sentence
         sent_ix = random.randint(0, self.embeddings_num)
@@ -308,3 +336,9 @@ class TextDataset(data.Dataset):
 
     def __len__(self):
         return len(self.filenames)
+
+    def test(self):
+        data_dir = ".\\"
+        self.gen_filename_pickle(os.path.join(data_dir, "voxelbinary"), "*.voxel", os.path.join(data_dir, "train\\filenames.pickle"))
+        filenames, captions, ixtoword, wordtoix, n_words = self.load_text_data(data_dir, "train")
+        print(n_words)

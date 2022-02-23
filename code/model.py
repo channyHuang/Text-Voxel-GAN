@@ -19,41 +19,32 @@ class NetG(nn.Module):
         self.block3 = G_Block(ngf * 8, ngf * 8)#16x16
         self.block4 = G_Block(ngf * 8, ngf * 4)#32x32
         self.block5 = G_Block(ngf * 4, ngf * 2)#64x64
-        self.block6 = G_Block(ngf * 2, ngf * 1)#128x128
+        #self.block6 = G_Block(ngf * 2, ngf * 1)#128x128
 
         self.conv_img = nn.Sequential(
             nn.LeakyReLU(0.2,inplace=True),
-            nn.Conv2d(ngf, 3, 3, 1, 1),
+            nn.Conv2d(ngf * 2, 32, 3, 1, 1),
             nn.Tanh(),
         )
 
-    def forward(self, x, c):
-
-        out = self.fc(x)
-        out = out.view(x.size(0), 8*self.ngf, 4, 4)
+    def forward(self, x, c): # x[2, 100], c[2, 256]
+        out = self.fc(x) # out[2, 2048] = [2, ngf*8*4*4]
+        out = out.view(x.size(0), 8*self.ngf, 4, 4) #out[2,128,4,4]
         out = self.block0(out,c)
-
-        out = F.interpolate(out, scale_factor=2)
+        out = F.interpolate(out, scale_factor=2) #out[2,128,8,8]
         out = self.block1(out,c)
-
-        out = F.interpolate(out, scale_factor=2)
+        out = F.interpolate(out, scale_factor=2) #out[2,128,16,16]
         out = self.block2(out,c)
-
-        out = F.interpolate(out, scale_factor=2)
+        out = F.interpolate(out, scale_factor=2) #out[2,128,32,32]
         out = self.block3(out,c)
-
-        out = F.interpolate(out, scale_factor=2)
+        #out = F.interpolate(out, scale_factor=2) #out[2,128, 64, 64]
         out = self.block4(out,c)
-
-        out = F.interpolate(out, scale_factor=2)
+        #out = F.interpolate(out, scale_factor=2)
         out = self.block5(out,c)
-
-        out = F.interpolate(out, scale_factor=2)
-        out = self.block6(out,c)
-
+        #out = F.interpolate(out, scale_factor=2)
+        #out = self.block6(out,c)
         out = self.conv_img(out)
-
-        return out
+        return out #out[2, 32, 32, 32]
 
 
 
@@ -141,15 +132,16 @@ class D_GET_LOGITS(nn.Module):
         self.df_dim = ndf
 
         self.joint_conv = nn.Sequential(
-            nn.Conv2d(ndf * 16+256, ndf * 2, 3, 1, 1, bias=False),
+            nn.Conv2d(ndf * 16, ndf * 2, 3, 1, 1, bias=False),
             nn.LeakyReLU(0.2,inplace=True),
             nn.Conv2d(ndf * 2, 1, 4, 1, 0, bias=False),
         )
 
     def forward(self, out, y):
-        
-        y = y.view(-1, 256, 1, 1)
-        y = y.repeat(1, 1, 4, 4)
+        #y = y.view(-1, 256, 1, 1)
+        #y = y.repeat(1, 1, 4, 4)
+        y = y.view(-1, 128, 2, 1)
+        y = y.repeat(1, 1, 2, 4)
         h_c_code = torch.cat((out, y), 1)
         out = self.joint_conv(h_c_code)
         return out
@@ -163,26 +155,25 @@ class NetD(nn.Module):
     def __init__(self, ndf):
         super(NetD, self).__init__()
 
-        self.conv_img = nn.Conv2d(3, ndf, 3, 1, 1)#128
+        self.conv_img = nn.Conv2d(32, ndf, 3, 1, 1)#128
         self.block0 = resD(ndf * 1, ndf * 2)#64
         self.block1 = resD(ndf * 2, ndf * 4)#32
         self.block2 = resD(ndf * 4, ndf * 8)#16
-        self.block3 = resD(ndf * 8, ndf * 16)#8
-        self.block4 = resD(ndf * 16, ndf * 16)#4
-        self.block5 = resD(ndf * 16, ndf * 16)#4
+        #self.block3 = resD(ndf * 8, ndf * 16)#8
+        #self.block4 = resD(ndf * 16, ndf * 16)#4
+        #self.block5 = resD(ndf * 16, ndf * 16)#4
 
         self.COND_DNET = D_GET_LOGITS(ndf)
 
-    def forward(self,x):
-
+    def forward(self,x): #x[2, 32, 32, 32]
+        x = torch.tensor(x, dtype = torch.float32)
         out = self.conv_img(x)
         out = self.block0(out)
         out = self.block1(out)
         out = self.block2(out)
-        out = self.block3(out)
-        out = self.block4(out)
-        out = self.block5(out)
-
+        #out = self.block3(out)
+        #out = self.block4(out)
+        #out = self.block5(out)
         return out
 
 
