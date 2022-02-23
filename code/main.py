@@ -53,7 +53,7 @@ def sampling(text_encoder, netG, dataloader,device):
     model_dir = cfg.TRAIN.NET_G
     split_dir = 'valid'
     # Build and load the generator
-    netG.load_state_dict(torch.load('models/%s/netG.pth'%(cfg.CONFIG_NAME)))
+    netG.load_state_dict(torch.load('models/%s/netG.pth'%(cfg.CONFIG_NAME), map_location='cpu'))
     netG.eval()
 
     batch_size = cfg.TRAIN.BATCH_SIZE
@@ -141,7 +141,8 @@ def train(dataloader,netG,netD,text_encoder,optimizerG,optimizerD,state_epoch,ba
             out = netD.COND_DNET(features,sent_inter)
             grads = torch.autograd.grad(outputs=out,
                                     inputs=(interpolated,sent_inter),
-                                    grad_outputs=torch.ones(out.size()).cuda(),
+                                    #grad_outputs=torch.ones(out.size()).cuda(),
+                                    grad_outputs=torch.ones(out.size()),
                                     retain_graph=True,
                                     create_graph=True,
                                     only_inputs=True)
@@ -169,14 +170,14 @@ def train(dataloader,netG,netD,text_encoder,optimizerG,optimizerD,state_epoch,ba
                 % (epoch, cfg.TRAIN.MAX_EPOCH, step, len(dataloader), errD.item(), errG.item()))
 
         vutils.save_image(fake.data,
-                        '%s/fake_samples_epoch_%03d.png' % ('imgs/', epoch),
+                        '%s/%s/fake_samples_epoch_%03d.png' % (cfg.DATA_DIR, 'imgs', epoch),
                         normalize=True)
 
         if epoch%10==0:
             torch.save(netG.state_dict(), 'models/%s/netG_%03d.pth' % (cfg.CONFIG_NAME, epoch))
             torch.save(netD.state_dict(), 'models/%s/netD_%03d.pth' % (cfg.CONFIG_NAME, epoch))       
 
-    return count
+    return 0
 
 
 
@@ -185,12 +186,12 @@ if __name__ == "__main__":
     args = parse_args()
     if args.cfg_file is not None:
         cfg_from_file(args.cfg_file)
-
+    '''
     if args.gpu_id == -1:
         cfg.CUDA = False
     else:
         cfg.GPU_ID = args.gpu_id
-
+    '''
     if args.data_dir != '':
         cfg.DATA_DIR = args.data_dir
     print('Using config:')
@@ -214,7 +215,7 @@ if __name__ == "__main__":
     output_dir = '../output/%s_%s_%s' % \
         (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp)
 
-    torch.cuda.set_device(cfg.GPU_ID)
+    #torch.cuda.set_device(cfg.GPU_ID)
     cudnn.benchmark = True
 
     # Get data loader ##################################################
@@ -245,7 +246,8 @@ if __name__ == "__main__":
 
     # # validation data #
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
 
     netG = NetG(cfg.TRAIN.NF, 100).to(device)
     netD = NetD(cfg.TRAIN.NF).to(device)
@@ -253,7 +255,7 @@ if __name__ == "__main__":
     text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
     state_dict = torch.load(cfg.TEXT.DAMSM_NAME, map_location=lambda storage, loc: storage)
     text_encoder.load_state_dict(state_dict)
-    text_encoder.cuda()
+    #text_encoder.cuda()
 
     for p in text_encoder.parameters():
         p.requires_grad = False
