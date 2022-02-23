@@ -10,6 +10,57 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from miscc.config import cfg
 
+class GLU(nn.Module):
+    def __init__(self):
+        super(GLU, self).__init__()
+
+    def forward(self, x):
+        nc = x.size(1)
+        assert nc % 2 == 0, 'channels dont divide 2!'
+        nc = int(nc/2)
+        return x[:, :nc] * torch.sigmoid(x[:, nc:])
+
+class Interpolate(nn.Module):
+    def __init__(self, scale_factor, mode, size=None):
+        super(Interpolate, self).__init__()
+        self.interp = nn.functional.interpolate
+        self.scale_factor = scale_factor
+        self.mode = mode
+        self.size = size
+
+    def forward(self, x):
+        x = self.interp(x, scale_factor=self.scale_factor, mode=self.mode, size=self.size)
+        return x
+
+def conv1x1(in_planes, out_planes, bias=False):
+    "1x1 convolution with padding"
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1,
+                     padding=0, bias=bias)
+
+
+def conv3x3(in_planes, out_planes):
+    "3x3 convolution with padding"
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
+                     padding=1, bias=False)
+
+
+# Upsale the spatial size by a factor of 2
+def upBlock(in_planes, out_planes):
+    block = nn.Sequential(
+        Interpolate(scale_factor=2, mode='nearest'),
+        conv3x3(in_planes, out_planes * 2),
+        nn.BatchNorm2d(out_planes * 2),
+        GLU())
+    return block
+
+
+# Keep the spatial size
+def Block3x3_relu(in_planes, out_planes):
+    block = nn.Sequential(
+        conv3x3(in_planes, out_planes * 2),
+        nn.BatchNorm2d(out_planes * 2),
+        GLU())
+    return block
 
 # ############## Text2Image Encoder-Decoder #######
 class RNN_ENCODER(nn.Module):
